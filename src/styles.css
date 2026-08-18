@@ -226,3 +226,62 @@ footer {
   color: var(--dim);
   font-size: 12px;
 }
+
+.layout {
+  display: flex;
+  gap: 28px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.howto {
+  flex: 1 1 260px;
+  min-width: 260px;
+  max-width: 340px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px 18px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--dim);
+}
+
+.howto h3 {
+  color: var(--text);
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin: 0 0 8px;
+}
+
+.howto h3 + p,
+.howto ol + h3 {
+  margin-top: 14px;
+}
+
+.howto ol {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.howto li {
+  margin-bottom: 8px;
+}
+
+.howto b {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.howto a {
+  color: var(--ok);
+}
+
+.howto kbd {
+  background: #0d1631;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 0 4px;
+  font-size: 12px;
+}

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import BoardView, { cellName } from './components/BoardView';
 import FleetStatus from './components/FleetStatus';
+import HowToPlay from './components/HowToPlay';
 import {
   DEFAULT_RULES,
   canPlace,
@@ -235,6 +236,7 @@ export default function App() {
         {phase === 'over' ? 'Game over.' : null}
       </p>
 
+      <div className="layout">
       <div className="boards">
         <div>
           <h2>Your waters</h2>
@@ -259,6 +261,8 @@ export default function App() {
           />
           <FleetStatus board={aiBoard} title="Enemy fleet" hideDamage={phase !== 'over'} />
         </div>
+      </div>
+      <HowToPlay epoch={ephemeris?.epoch} source={ephemeris?.source} />
       </div>
 
       <section className="log">

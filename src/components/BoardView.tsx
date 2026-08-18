@@ -16,6 +16,10 @@ interface Props {
   preview?: number[];
   previewValid?: boolean;
   onCellEnter?: (index: number) => void;
+  /** Per-cell weights, drawn as a shaded overlay. Any scale; it gets normalised. */
+  heat?: number[];
+  /** Cell the last shot landed on, so a turn is visible at a glance. */
+  lastShot?: number | null;
 }
 
 export default function BoardView({
@@ -26,7 +30,14 @@ export default function BoardView({
   preview = [],
   previewValid = true,
   onCellEnter,
+  heat,
+  lastShot = null,
 }: Props) {
+  // Stretched between the lowest and highest live cell, otherwise every square
+  // ends up the same shade of green.
+  const live = heat ? heat.filter((v, i) => v > 0 && board.shots[i] === undefined) : [];
+  const heatMin = live.length > 0 ? Math.min(...live) : 0;
+  const heatSpan = live.length > 0 ? Math.max(...live) - heatMin : 0;
   const occupied = occupiedCells(board);
   const sunk = new Set<ShipId>(sunkShips(board));
   const sunkCells = new Set<number>();
@@ -44,11 +55,23 @@ export default function BoardView({
       if (shot === 'miss') classes.push('miss');
       if (shot === 'hit') classes.push(sunkCells.has(index) ? 'sunk' : 'hit');
       if (previewSet.has(index)) classes.push(previewValid ? 'preview' : 'preview-bad');
+      if (index === lastShot) classes.push('last-shot');
+      const weight =
+        heat && heatSpan > 0 && shot === undefined
+          ? Math.max(0, (heat[index] - heatMin) / heatSpan)
+          : 0;
       cells.push(
         <button
           key={index}
           type="button"
           className={classes.join(' ')}
+          style={
+            weight > 0
+              ? // Painted inside the border, so your own hulls still read as
+                // outlines while the map is up.
+                { boxShadow: `inset 0 0 0 30px rgba(74, 211, 161, ${0.12 + weight * 0.7})` }
+              : undefined
+          }
           aria-label={cellName(index)}
           data-cell={cellName(index)}
           disabled={disabled || (!!shot && !onCellEnter)}

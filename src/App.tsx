@@ -12,10 +12,9 @@ import {
   placeShip,
   previewCells,
   randomBoard,
-  shipCellsOf,
-  sunkShips,
 } from './game/board';
-import { AiKnowledge, AiState, Difficulty, chooseShot, newAiState } from './game/ai';
+import { AiState, Difficulty, chooseShot, densityMap, newAiState } from './game/ai';
+import { knowledgeOf } from './game/selfplay';
 import { Ephemeris, eclipticLongitude, fetchEphemeris, seedFromEphemeris } from './game/ephemeris';
 import { mulberry32 } from './game/rng';
 import { Board, FLEET, Orientation, Placement, shipById } from './game/types';
@@ -28,12 +27,6 @@ const DIFFICULTY_LABELS: Record<Difficulty, string> = {
   admiral: 'Admiral (probability map)',
 };
 
-function knowledgeOf(board: Board): AiKnowledge {
-  const sunkShipIds = sunkShips(board);
-  const sunkCells = sunkShipIds.flatMap((id) => shipCellsOf(board, id));
-  return { shots: board.shots, sunkCells, sunkShipIds };
-}
-
 export default function App() {
   const [ephemeris, setEphemeris] = useState<Ephemeris | null>(null);
   const [difficulty, setDifficulty] = useState<Difficulty>('hunter');
@@ -45,6 +38,9 @@ export default function App() {
   const [hover, setHover] = useState<number | null>(null);
   const [log, setLog] = useState<string[]>([]);
   const [turn, setTurn] = useState<'player' | 'ai'>('player');
+  const [showHeat, setShowHeat] = useState(false);
+  const [lastPlayerShot, setLastPlayerShot] = useState<number | null>(null);
+  const [lastAiShot, setLastAiShot] = useState<number | null>(null);
   const rngRef = useRef(mulberry32(Date.now()));
 
   useEffect(() => {
@@ -100,6 +96,7 @@ export default function App() {
   // The enemy fleet is laid out from the planetary seed, so there is no game
   // until that seed has arrived.
   const ready = fleetReady(aiBoard);
+  const playerLost = fleetDestroyed(playerBoard);
 
   function handlePlace(index: number) {
     if (!nextShip || !ready) return;
@@ -133,6 +130,8 @@ export default function App() {
   }
 
   function newGame() {
+    setLastPlayerShot(null);
+    setLastAiShot(null);
     setPlayerBoard(emptyBoard());
     setAiBoard(randomBoard(rngRef.current));
     setAiState(newAiState(difficulty));
@@ -146,6 +145,7 @@ export default function App() {
     const outcome = fire(aiBoard, index);
     if (outcome.result === 'repeat') return;
     setAiBoard(outcome.board);
+    setLastPlayerShot(index);
     if (outcome.result === 'sunk') {
       addLog(`You sank the enemy ${shipById(outcome.shipId!).name}! (${cellName(index)})`);
     } else {
@@ -166,6 +166,7 @@ export default function App() {
       const outcome = fire(playerBoard, move.index);
       setAiState(move.state);
       setPlayerBoard(outcome.board);
+      setLastAiShot(move.index);
       if (outcome.result === 'sunk') {
         addLog(`Enemy sank your ${shipById(outcome.shipId!).name}! (${cellName(move.index)})`);
       } else {
@@ -181,6 +182,14 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [phase, turn, playerBoard, aiState, addLog]);
 
+  // The map the Admiral works from: how many ways the ships still afloat could
+  // cover each square of the player's ocean. Drawn on the player's own board,
+  // so it never leaks where the enemy fleet is.
+  const heat = useMemo(
+    () => (showHeat && phase !== 'placing' ? densityMap(knowledgeOf(playerBoard)) : undefined),
+    [showHeat, phase, playerBoard],
+  );
+
   const orbits = ephemeris?.planets.map((p) => ({
     name: p.name,
     longitude: eclipticLongitude(p).toFixed(1),
@@ -189,6 +198,9 @@ export default function App() {
   return (
     <div className="app">
       <header>
+        <a className="back" href="#/">
+          &larr; What is this?
+        </a>
         <h1>Orbital Battleship</h1>
         <p className="sub">
           Ten by ten grid, five ships, one stubborn AI. The board seed comes from where the planets
@@ -232,9 +244,14 @@ export default function App() {
             New game
           </button>
         )}
+        {phase !== 'placing' && (
+          <button type="button" onClick={() => setShowHeat((v) => !v)}>
+            {showHeat ? 'Hide' : 'Show'} AI targeting map
+          </button>
+        )}
       </section>
 
-      <p className="status">
+      <p className={`status ${phase === 'battle' && turn === 'ai' ? 'waiting' : ''}`}>
         {!ready ? 'Reading planetary positions before the enemy fleet is laid out...' : null}
         {ready && phase === 'placing' && nextShip
           ? `Place your ${nextShip.name} (${nextShip.size} cells). Press R to rotate.`
@@ -244,7 +261,7 @@ export default function App() {
             ? 'Your turn - pick a target on the enemy grid.'
             : 'Enemy is taking aim...'
           : null}
-        {phase === 'over' ? 'Game over.' : null}
+        {phase === 'over' ? (playerLost ? 'Your fleet is gone. The AI wins.' : 'Enemy fleet destroyed. You win.') : null}
       </p>
 
       <div className="layout">
@@ -259,7 +276,15 @@ export default function App() {
             onCellEnter={phase === 'placing' && ready ? setHover : undefined}
             preview={preview}
             previewValid={previewValid}
+            heat={heat}
+            lastShot={lastAiShot}
           />
+          {showHeat && phase !== 'placing' ? (
+            <p className="heat-note">
+              Green is where the Admiral thinks your remaining ships can still fit - brightest square
+              is its next shot.
+            </p>
+          ) : null}
           <FleetStatus board={playerBoard} title="Your fleet" />
         </div>
         <div>
@@ -269,6 +294,7 @@ export default function App() {
             revealShips={phase === 'over'}
             disabled={phase !== 'battle' || turn !== 'player'}
             onCellClick={playerFire}
+            lastShot={lastPlayerShot}
           />
           <FleetStatus board={aiBoard} title="Enemy fleet" hideDamage={phase !== 'over'} />
         </div>

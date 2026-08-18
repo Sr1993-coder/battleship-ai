@@ -41,6 +41,29 @@ const FALLBACK: Ephemeris = {
   ],
 };
 
+const EXPECTED_BODIES = ['Venus', 'Mars', 'Jupiter'];
+
+/**
+ * The seed is only reproducible if the file holds all three bodies with usable
+ * coordinates, so anything else is treated as a bad response rather than being
+ * passed on to the seeding code.
+ */
+function validate(data: Ephemeris): Ephemeris {
+  if (!Array.isArray(data.planets)) throw new Error('ephemeris: planets is not a list');
+  const names = data.planets.map((p) => p?.name);
+  for (const body of EXPECTED_BODIES) {
+    if (!names.includes(body)) throw new Error(`ephemeris: missing ${body}`);
+  }
+  for (const planet of data.planets) {
+    for (const axis of [planet?.x, planet?.y, planet?.z]) {
+      if (typeof axis !== 'number' || !Number.isFinite(axis)) {
+        throw new Error(`ephemeris: bad coordinates for ${planet?.name}`);
+      }
+    }
+  }
+  return data;
+}
+
 export async function fetchEphemeris(signal?: AbortSignal): Promise<Ephemeris> {
   try {
     // Written at build time by scripts/fetch-ephemeris.ts; the site is static.
@@ -48,8 +71,7 @@ export async function fetchEphemeris(signal?: AbortSignal): Promise<Ephemeris> {
     const response = await fetch(url, { signal, cache: 'no-cache' });
     if (!response.ok) throw new Error(`ephemeris ${response.status}`);
     const data = (await response.json()) as Ephemeris;
-    if (!data.planets || data.planets.length === 0) throw new Error('no planets');
-    return data;
+    return validate(data);
   } catch (error) {
     // An aborted request is the caller changing its mind, not Horizons being
     // down, so it must not be reported as a fallback seed.

@@ -23,8 +23,8 @@ the enemy layout.
 | Level   | Strategy | Mean shots to clear a board |
 | ------- | -------- | --- |
 | Cadet   | Fires at random untouched cells. | 95.4 |
-| Officer | Random parity search, then hunts along the line of an unresolved hit. | 57.8 |
-| Admiral | Counts every legal placement of the ships still afloat and fires at the highest-probability cell. | 44.9 |
+| Officer | Random parity search, then hunts along the line of an unresolved hit. | 53.9 |
+| Admiral | Counts every legal placement of the ships still afloat and fires at the highest-probability cell. | 38.4 |
 
 Those are measured, not estimated: `npm run benchmark` plays 2000 headless
 games per level against real boards using the same targeting code the UI uses

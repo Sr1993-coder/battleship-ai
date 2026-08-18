@@ -1,6 +1,6 @@
 # Debugging Orbital Battleship
 
-## 5 approaches used for bug identification
+## 5 approaches used for bug identification to cast a wide "net"
 
 1. **Exploratory play** — playing the game as a player with the seed written down
    so anything odd could be replayed. Catches turn-order, rendering, and

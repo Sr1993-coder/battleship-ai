@@ -8,6 +8,7 @@ import {
   emptyBoard,
   fire,
   fleetDestroyed,
+  fleetReady,
   placeShip,
   previewCells,
   randomBoard,
@@ -48,12 +49,16 @@ export default function App() {
 
   useEffect(() => {
     const controller = new AbortController();
-    fetchEphemeris(controller.signal).then((data) => {
-      setEphemeris(data);
-      const seed = seedFromEphemeris(data);
-      rngRef.current = mulberry32(seed);
-      setAiBoard(randomBoard(rngRef.current));
-    });
+    fetchEphemeris(controller.signal)
+      .then((data) => {
+        setEphemeris(data);
+        rngRef.current = mulberry32(seedFromEphemeris(data));
+        // Never overwrite a board that is already in play.
+        setAiBoard((prev) => (fleetReady(prev) ? prev : randomBoard(rngRef.current)));
+      })
+      .catch(() => {
+        // Aborted because the component went away; nothing to do.
+      });
     return () => controller.abort();
   }, []);
 
@@ -92,8 +97,12 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  // The enemy fleet is laid out from the planetary seed, so there is no game
+  // until that seed has arrived.
+  const ready = fleetReady(aiBoard);
+
   function handlePlace(index: number) {
-    if (!nextShip) return;
+    if (!nextShip || !ready) return;
     const placement: Placement = {
       shipId: nextShip.id,
       row: Math.floor(index / 10),
@@ -110,6 +119,7 @@ export default function App() {
   }
 
   function autoPlace() {
+    if (!ready) return;
     const board = randomBoard(rngRef.current);
     setPlayerBoard(board);
     setPhase('battle');
@@ -132,7 +142,7 @@ export default function App() {
   }
 
   function playerFire(index: number) {
-    if (phase !== 'battle' || turn !== 'player') return;
+    if (phase !== 'battle' || turn !== 'player' || !ready) return;
     const outcome = fire(aiBoard, index);
     if (outcome.result === 'repeat') return;
     setAiBoard(outcome.board);
@@ -209,7 +219,7 @@ export default function App() {
             <button type="button" onClick={() => setOrientation((o) => (o === 'H' ? 'V' : 'H'))}>
               Orientation: {orientation === 'H' ? 'horizontal' : 'vertical'} (R)
             </button>
-            <button type="button" onClick={autoPlace}>
+            <button type="button" onClick={autoPlace} disabled={!ready}>
               Random fleet
             </button>
             <button type="button" onClick={resetPlacement}>
@@ -225,7 +235,8 @@ export default function App() {
       </section>
 
       <p className="status">
-        {phase === 'placing' && nextShip
+        {!ready ? 'Reading planetary positions before the enemy fleet is laid out...' : null}
+        {ready && phase === 'placing' && nextShip
           ? `Place your ${nextShip.name} (${nextShip.size} cells). Press R to rotate.`
           : null}
         {phase === 'battle'
@@ -243,9 +254,9 @@ export default function App() {
           <BoardView
             board={playerBoard}
             revealShips
-            disabled={phase !== 'placing'}
-            onCellClick={phase === 'placing' ? handlePlace : undefined}
-            onCellEnter={phase === 'placing' ? setHover : undefined}
+            disabled={phase !== 'placing' || !ready}
+            onCellClick={phase === 'placing' && ready ? handlePlace : undefined}
+            onCellEnter={phase === 'placing' && ready ? setHover : undefined}
             preview={preview}
             previewValid={previewValid}
           />

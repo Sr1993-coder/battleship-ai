@@ -4,6 +4,7 @@ import {
   emptyBoard,
   fire,
   fleetDestroyed,
+  fleetReady,
   isSunk,
   placeShip,
   placementCells,
@@ -96,5 +97,13 @@ describe('placement preview', () => {
   it('stops at the bottom edge for vertical ships', () => {
     const cells = previewCells({ shipId: 'cruiser', row: 9, col: 2, orientation: 'V' });
     expect(cells).toEqual([toIndex(9, 2)]);
+  });
+});
+
+describe('fleetReady', () => {
+  it('is false until every ship is on the board, which is what gates the battle', () => {
+    expect(fleetReady(emptyBoard())).toBe(false);
+    expect(fleetReady(placeShip(emptyBoard(), destroyer(0, 0)))).toBe(false);
+    expect(fleetReady(randomBoard(mulberry32(7)))).toBe(true);
   });
 });

@@ -1,6 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { parseVector } from '../game/horizons';
-import { Ephemeris, eclipticLongitude, seedFromEphemeris } from '../game/ephemeris';
+import {
+  Ephemeris,
+  eclipticLongitude,
+  fetchEphemeris,
+  seedFromEphemeris,
+} from '../game/ephemeris';
 
 const REPORT = `
 *******************************************************************************
@@ -51,5 +56,30 @@ describe('seeding', () => {
     expect(eclipticLongitude({ name: 'x', x: 1, y: 0, z: 0 })).toBeCloseTo(0);
     expect(eclipticLongitude({ name: 'x', x: 0, y: 1, z: 0 })).toBeCloseTo(90);
     expect(eclipticLongitude({ name: 'x', x: -1, y: 0, z: 0 })).toBeCloseTo(180);
+  });
+});
+
+describe('fetchEphemeris', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('falls back to the built-in table when the file is missing', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 404 }));
+    const result = await fetchEphemeris();
+    expect(result.source).toBe('fallback');
+    expect(result.planets).toHaveLength(3);
+  });
+
+  it('rejects an aborted request instead of reporting a fallback seed', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(() => {
+        const error = new Error('aborted');
+        error.name = 'AbortError';
+        return Promise.reject(error);
+      }),
+    );
+    const controller = new AbortController();
+    controller.abort();
+    await expect(fetchEphemeris(controller.signal)).rejects.toThrow(/abort/i);
   });
 });

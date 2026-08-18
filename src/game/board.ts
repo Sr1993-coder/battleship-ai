@@ -153,6 +153,11 @@ export function sunkShips(board: Board): ShipId[] {
   return board.placements.map((p) => p.shipId).filter((id) => isSunk(board, id));
 }
 
+/** A board is only playable once the whole fleet is on it. */
+export function fleetReady(board: Board): boolean {
+  return board.placements.length === FLEET.length;
+}
+
 export function fleetDestroyed(board: Board): boolean {
   return board.placements.length > 0 && board.placements.every((p) => isSunk(board, p.shipId));
 }

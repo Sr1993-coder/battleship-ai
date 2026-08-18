@@ -50,7 +50,10 @@ export async function fetchEphemeris(signal?: AbortSignal): Promise<Ephemeris> {
     const data = (await response.json()) as Ephemeris;
     if (!data.planets || data.planets.length === 0) throw new Error('no planets');
     return data;
-  } catch {
+  } catch (error) {
+    // An aborted request is the caller changing its mind, not Horizons being
+    // down, so it must not be reported as a fallback seed.
+    if (error instanceof Error && error.name === 'AbortError') throw error;
     // The game must never be blocked by an external service, so fall back to
     // a fixed vector table and tell the player we are offline.
     return { ...FALLBACK, epoch: new Date().toISOString().slice(0, 10) };

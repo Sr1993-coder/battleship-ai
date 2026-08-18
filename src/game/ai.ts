@@ -67,7 +67,7 @@ function remainingSizes(knowledge: AiKnowledge): number[] {
  * Follow-up cells for the unresolved hits. When two or more hits line up we
  * extend along that line first, which is how a decent human plays.
  */
-function followUpTargets(knowledge: AiKnowledge): number[] {
+export function followUpTargets(knowledge: AiKnowledge): number[] {
   const hits = activeHits(knowledge);
   if (hits.length === 0) return [];
 
@@ -75,26 +75,37 @@ function followUpTargets(knowledge: AiKnowledge): number[] {
   const open = (i: number) => knowledge.shots[i] === undefined;
   const inLine: number[] = [];
 
+  /** Grid-aware lookup: returns null outside the board instead of wrapping. */
+  const cellAt = (row: number, col: number): number | null =>
+    row < 0 || col < 0 || row >= BOARD_SIZE || col >= BOARD_SIZE ? null : toIndex(row, col);
+  const isHit = (row: number, col: number) => {
+    const cell = cellAt(row, col);
+    return cell !== null && hitSet.has(cell);
+  };
+
+  /** Walks away from a hit along one axis and returns the first open cell. */
+  const extend = (row: number, col: number, dr: number, dc: number): number | null => {
+    let r = row;
+    let c = col;
+    while (isHit(r, c)) {
+      r += dr;
+      c += dc;
+    }
+    const cell = cellAt(r, c);
+    return cell !== null && open(cell) ? cell : null;
+  };
+
   for (const hit of hits) {
     const row = toRow(hit);
     const col = toCol(hit);
-    if (hitSet.has(toIndex(row, col + 1)) || hitSet.has(toIndex(row, col - 1))) {
-      let c = col;
-      while (hitSet.has(toIndex(row, c))) c++;
-      if (c < BOARD_SIZE && open(toIndex(row, c))) inLine.push(toIndex(row, c));
-      c = col;
-      while (hitSet.has(toIndex(row, c))) c--;
-      if (c >= 0 && open(toIndex(row, c))) inLine.push(toIndex(row, c));
-    }
-    if (row + 1 < BOARD_SIZE && hitSet.has(toIndex(row + 1, col))) {
-      let r = row;
-      while (r < BOARD_SIZE && hitSet.has(toIndex(r, col))) r++;
-      if (r < BOARD_SIZE && open(toIndex(r, col))) inLine.push(toIndex(r, col));
-    }
-    if (row > 0 && hitSet.has(toIndex(row - 1, col))) {
-      let r = row;
-      while (r >= 0 && hitSet.has(toIndex(r, col))) r--;
-      if (r >= 0 && open(toIndex(r, col))) inLine.push(toIndex(r, col));
+    const axes: Array<[number, number]> = [];
+    if (isHit(row, col - 1) || isHit(row, col + 1)) axes.push([0, 1]);
+    if (isHit(row - 1, col) || isHit(row + 1, col)) axes.push([1, 0]);
+    for (const [dr, dc] of axes) {
+      for (const sign of [1, -1]) {
+        const cell = extend(row, col, dr * sign, dc * sign);
+        if (cell !== null) inLine.push(cell);
+      }
     }
   }
 

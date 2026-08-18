@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AiKnowledge, chooseShot, densityMap, newAiState } from '../game/ai';
+import { AiKnowledge, chooseShot, densityMap, followUpTargets, newAiState } from '../game/ai';
 import { fire, randomBoard, shipCellsOf, sunkShips } from '../game/board';
 import { Board, ShotResult, toIndex } from '../game/types';
 import { mulberry32 } from '../game/rng';
@@ -81,5 +81,23 @@ describe('ai strength', () => {
     expect(hunter).toBeLessThan(random);
     expect(admiral).toBeLessThan(hunter);
     expect(admiral).toBeLessThan(60);
+  });
+});
+
+describe('grid edge handling', () => {
+  it('does not treat hits on opposite edges as a line', () => {
+    // Indices 59 and 60 are neighbours in the flat array but sit on opposite
+    // sides of the board, so they cannot belong to the same ship.
+    const shots = { [toIndex(5, 9)]: 'hit' as const, [toIndex(6, 0)]: 'hit' as const };
+    const targets = followUpTargets(knowledge(shots)).sort((a, b) => a - b);
+    const expected = [
+      toIndex(4, 9),
+      toIndex(5, 8),
+      toIndex(6, 9),
+      toIndex(5, 0),
+      toIndex(6, 1),
+      toIndex(7, 0),
+    ].sort((a, b) => a - b);
+    expect(targets).toEqual(expected);
   });
 });

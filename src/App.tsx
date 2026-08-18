@@ -8,7 +8,7 @@ import {
   fire,
   fleetDestroyed,
   placeShip,
-  placementCells,
+  previewCells,
   randomBoard,
   shipCellsOf,
   sunkShips,
@@ -67,7 +67,7 @@ export default function App() {
       col: hover % 10,
       orientation,
     };
-    return placementCells(placement).filter((c) => c >= 0 && c < 100);
+    return previewCells(placement);
   }, [phase, hover, nextShip, orientation]);
 
   const previewValid = useMemo(() => {
@@ -257,7 +257,7 @@ export default function App() {
             disabled={phase !== 'battle' || turn !== 'player'}
             onCellClick={playerFire}
           />
-          <FleetStatus board={aiBoard} title="Enemy fleet" />
+          <FleetStatus board={aiBoard} title="Enemy fleet" hideDamage={phase !== 'over'} />
         </div>
       </div>
 

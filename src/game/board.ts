@@ -28,6 +28,23 @@ export function placementCells(placement: Placement): number[] {
   return cells;
 }
 
+/**
+ * Cells to highlight while the player drags a ship around. Unlike
+ * placementCells this never leaves the row it started on, so a ship hanging
+ * over the right edge does not light up cells on the next row.
+ */
+export function previewCells(placement: Placement): number[] {
+  const size = shipById(placement.shipId).size;
+  const cells: number[] = [];
+  for (let i = 0; i < size; i++) {
+    const r = placement.orientation === 'V' ? placement.row + i : placement.row;
+    const c = placement.orientation === 'H' ? placement.col + i : placement.col;
+    if (r < 0 || c < 0 || r >= BOARD_SIZE || c >= BOARD_SIZE) continue;
+    cells.push(toIndex(r, c));
+  }
+  return cells;
+}
+
 export function inBounds(placement: Placement): boolean {
   const size = shipById(placement.shipId).size;
   if (placement.row < 0 || placement.col < 0) return false;

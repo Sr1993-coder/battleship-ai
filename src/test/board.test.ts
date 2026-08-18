@@ -7,6 +7,7 @@ import {
   isSunk,
   placeShip,
   placementCells,
+  previewCells,
   randomBoard,
   remainingShips,
 } from '../game/board';
@@ -83,5 +84,17 @@ describe('firing', () => {
     expect(remainingShips(board)).toEqual(['destroyer']);
     const sunkBoard = fire(fire(board, toIndex(0, 0)).board, toIndex(0, 1)).board;
     expect(remainingShips(sunkBoard)).toEqual([]);
+  });
+});
+
+describe('placement preview', () => {
+  it('does not spill onto the next row when a ship overhangs the edge', () => {
+    const cells = previewCells({ shipId: 'carrier', row: 3, col: 8, orientation: 'H' });
+    expect(cells).toEqual([toIndex(3, 8), toIndex(3, 9)]);
+  });
+
+  it('stops at the bottom edge for vertical ships', () => {
+    const cells = previewCells({ shipId: 'cruiser', row: 9, col: 2, orientation: 'V' });
+    expect(cells).toEqual([toIndex(9, 2)]);
   });
 });

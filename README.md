@@ -1,5 +1,8 @@
 # Orbital Battleship
 
+Play it: https://sr1993-coder.github.io/battleship-ai/
+Bugs I found while building it: [docs/BUGS.md](docs/BUGS.md)
+
 Battleship against an AI, in the browser. Classic rules on a 10x10 grid with the
 standard five-ship fleet. The twist: the board seed comes from where the planets
 actually are, pulled live from NASA/JPL Horizons, so every day's games start from

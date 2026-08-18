@@ -76,6 +76,33 @@ button:hover:not(:disabled) {
   margin: 4px 0 14px;
 }
 
+.status.waiting {
+  color: var(--hit);
+}
+
+.cell.last-shot {
+  outline: 2px solid #f4d35e;
+  outline-offset: -1px;
+}
+
+.heat-note {
+  max-width: 330px;
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--dim);
+}
+
+.back {
+  color: var(--dim);
+  font-size: 13px;
+  text-decoration: none;
+}
+
+.back:hover {
+  color: var(--ok);
+}
+
 .boards {
   display: flex;
   gap: 28px;
@@ -123,6 +150,7 @@ button:hover:not(:disabled) {
 
 .cell.ship {
   background: var(--ship);
+  border-color: #7ea6ff;
 }
 
 .cell.miss {
@@ -276,6 +304,154 @@ footer {
 
 .howto a {
   color: var(--ok);
+}
+
+.landing {
+  max-width: 760px;
+  line-height: 1.65;
+}
+
+.landing .eyebrow {
+  margin: 0;
+  color: var(--ok);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+}
+
+.landing h1 {
+  font-size: 38px;
+  margin: 6px 0 10px;
+}
+
+.landing .sub {
+  max-width: 640px;
+  font-size: 16px;
+}
+
+.cta {
+  display: inline-block;
+  margin: 8px 0 4px;
+  padding: 11px 22px;
+  border-radius: 7px;
+  background: var(--ok);
+  color: #04261b;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.cta:hover {
+  filter: brightness(1.1);
+}
+
+.landing-block {
+  margin-top: 34px;
+  border-top: 1px solid var(--line);
+  padding-top: 18px;
+}
+
+.landing-block h2 {
+  font-size: 18px;
+  margin: 0 0 8px;
+}
+
+.landing-block p,
+.landing-block li {
+  color: #b9c4ea;
+  font-size: 15px;
+}
+
+.landing-block ol,
+.landing-block .links {
+  padding-left: 20px;
+}
+
+.landing .dim {
+  color: var(--dim);
+}
+
+.landing .small {
+  font-size: 13px;
+}
+
+.landing code {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 13px;
+}
+
+.landing a {
+  color: var(--ok);
+}
+
+.landing .cta {
+  color: #04261b;
+}
+
+.fleet-scale {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+}
+
+.fleet-scale li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+.fleet-scale .ship-name {
+  width: 92px;
+  font-size: 14px;
+}
+
+.hull {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.hull i {
+  width: 22px;
+  height: 22px;
+  border-radius: 3px;
+  background: var(--ship);
+  border: 1px solid var(--line);
+}
+
+table.bench {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 12px 0 6px;
+  font-size: 14px;
+}
+
+table.bench th {
+  text-align: left;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--dim);
+  border-bottom: 1px solid var(--line);
+  padding: 4px 8px 4px 0;
+  font-weight: 600;
+}
+
+table.bench td {
+  padding: 7px 8px 7px 0;
+  border-bottom: 1px solid #18224a;
+  vertical-align: top;
+}
+
+table.bench .num {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.seedline {
+  font-size: 14px;
 }
 
 .howto kbd {

@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "ephemeris": "tsx scripts/fetch-ephemeris.ts",
+    "benchmark": "tsx scripts/benchmark.ts",
     "preview": "vite preview",
     "lint": "eslint . --ext ts,tsx",
     "test": "vitest run",

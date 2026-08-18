@@ -1,0 +1,31 @@
+{
+  "games": 2000,
+  "seed": 20260818,
+  "generatedAt": "2026-08-18T11:28:47.241Z",
+  "results": [
+    {
+      "difficulty": "random",
+      "games": 2000,
+      "mean": 95.4,
+      "best": 68,
+      "worst": 100,
+      "median": 97
+    },
+    {
+      "difficulty": "hunter",
+      "games": 2000,
+      "mean": 57.8,
+      "best": 28,
+      "worst": 71,
+      "median": 59
+    },
+    {
+      "difficulty": "admiral",
+      "games": 2000,
+      "mean": 44.9,
+      "best": 24,
+      "worst": 73,
+      "median": 44
+    }
+  ]
+}

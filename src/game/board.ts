@@ -31,6 +31,7 @@ export function placementCells(placement: Placement): number[] {
 export function inBounds(placement: Placement): boolean {
   const size = shipById(placement.shipId).size;
   if (placement.row < 0 || placement.col < 0) return false;
+  if (placement.row >= BOARD_SIZE || placement.col >= BOARD_SIZE) return false;
   if (placement.orientation === 'H') return placement.col + size <= BOARD_SIZE;
   return placement.row + size <= BOARD_SIZE;
 }

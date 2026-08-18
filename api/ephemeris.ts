@@ -1,38 +1,18 @@
 /**
  * Vercel serverless proxy for NASA/JPL Horizons. The browser cannot call
- * Horizons directly (no CORS headers), and the response is a text report
- * wrapped in JSON, so we parse it here and hand the client plain numbers.
+ * Horizons directly (it sends no CORS headers) and the response is a text
+ * report wrapped in JSON, so the parsing happens here and the client gets
+ * plain numbers.
  */
+import { HORIZONS_BODIES, Vector, isoDay, parseVector } from '../src/game/horizons';
 
-const BODIES: Array<{ id: string; name: string }> = [
-  { id: '299', name: 'Venus' },
-  { id: '499', name: 'Mars' },
-  { id: '599', name: 'Jupiter' },
-];
-
-interface PlanetVector {
+interface PlanetVector extends Vector {
   name: string;
-  x: number;
-  y: number;
-  z: number;
 }
 
-function parseVector(report: string): { x: number; y: number; z: number } | null {
-  const block = report.split('$$SOE')[1];
-  if (!block) return null;
-  const match = block.match(
-    /X\s*=\s*(-?[\d.E+-]+)\s*Y\s*=\s*(-?[\d.E+-]+)\s*Z\s*=\s*(-?[\d.E+-]+)/,
-  );
-  if (!match) return null;
-  return { x: Number(match[1]), y: Number(match[2]), z: Number(match[3]) };
-}
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-function isoDay(offsetDays: number): string {
-  const d = new Date(Date.now() + offsetDays * 86400000);
-  return d.toISOString().slice(0, 10);
-}
-
-async function fetchBody(id: string): Promise<{ x: number; y: number; z: number } | null> {
+async function fetchBody(id: string): Promise<Vector | null> {
   const params = new URLSearchParams({
     format: 'json',
     COMMAND: `'${id}'`,
@@ -50,19 +30,34 @@ async function fetchBody(id: string): Promise<{ x: number; y: number; z: number 
   return payload.result ? parseVector(payload.result) : null;
 }
 
-export default async function handler(_request: Request): Promise<Response> {
+/**
+ * Horizons throttles concurrent requests from the same client, so the bodies
+ * are fetched one at a time with a single retry each. A partial answer is not
+ * good enough: the seed has to be identical for every player on a given day.
+ */
+async function fetchAllBodies(): Promise<PlanetVector[]> {
+  const planets: PlanetVector[] = [];
+  for (const body of HORIZONS_BODIES) {
+    let vector = await fetchBody(body.id);
+    if (!vector) {
+      await sleep(400);
+      vector = await fetchBody(body.id);
+    }
+    if (!vector) throw new Error(`no vector for ${body.name}`);
+    planets.push({ name: body.name, ...vector });
+  }
+  return planets;
+}
+
+export default async function handler(): Promise<Response> {
   const epoch = isoDay(0);
   try {
-    const results = await Promise.all(BODIES.map((body) => fetchBody(body.id)));
-    const planets: PlanetVector[] = [];
-    results.forEach((vector, i) => {
-      if (vector) planets.push({ name: BODIES[i].name, ...vector });
-    });
-    if (planets.length === 0) throw new Error('horizons returned no usable vectors');
+    const planets = await fetchAllBodies();
     return new Response(JSON.stringify({ epoch, planets, source: 'jpl-horizons' }), {
       headers: {
         'content-type': 'application/json',
-        // One hour is plenty: planets do not move fast enough to matter.
+        // Planets do not move fast enough for a shorter cache to be useful,
+        // and this keeps us well inside the Horizons rate limit.
         'cache-control': 'public, max-age=3600, s-maxage=3600',
       },
     });

@@ -1,9 +1,10 @@
 /**
- * Vercel serverless proxy for NASA/JPL Horizons. The browser cannot call
- * Horizons directly (it sends no CORS headers) and the response is a text
- * report wrapped in JSON, so the parsing happens here and the client gets
- * plain numbers.
+ * Pulls today's planet vectors from NASA/JPL Horizons and writes them to
+ * public/ephemeris.json, which ships with the static build. The browser cannot
+ * call Horizons itself (no CORS headers) and GitHub Pages has no server, so
+ * this runs in CI once a day instead.
  */
+import { mkdir, writeFile } from 'node:fs/promises';
 import { HORIZONS_BODIES, Vector, isoDay, parseVector } from '../src/game/horizons';
 
 interface PlanetVector extends Vector {
@@ -31,9 +32,9 @@ async function fetchBody(id: string): Promise<Vector | null> {
 }
 
 /**
- * Horizons throttles concurrent requests from the same client, so the bodies
- * are fetched one at a time with a single retry each. A partial answer is not
- * good enough: the seed has to be identical for every player on a given day.
+ * Horizons throttles requests that arrive together, so the bodies are fetched
+ * one at a time with a single retry each. A partial answer is not good enough:
+ * the seed has to be identical for every player on a given day.
  */
 async function fetchAllBodies(): Promise<PlanetVector[]> {
   const planets: PlanetVector[] = [];
@@ -49,24 +50,10 @@ async function fetchAllBodies(): Promise<PlanetVector[]> {
   return planets;
 }
 
-export default async function handler(): Promise<Response> {
-  const epoch = isoDay(0);
-  try {
-    const planets = await fetchAllBodies();
-    return new Response(JSON.stringify({ epoch, planets, source: 'jpl-horizons' }), {
-      headers: {
-        'content-type': 'application/json',
-        // Planets do not move fast enough for a shorter cache to be useful,
-        // and this keeps us well inside the Horizons rate limit.
-        'cache-control': 'public, max-age=3600, s-maxage=3600',
-      },
-    });
-  } catch (error) {
-    return new Response(JSON.stringify({ error: String(error) }), {
-      status: 502,
-      headers: { 'content-type': 'application/json' },
-    });
-  }
-}
-
-export const config = { runtime: 'edge' };
+const planets = await fetchAllBodies();
+await mkdir('public', { recursive: true });
+await writeFile(
+  'public/ephemeris.json',
+  `${JSON.stringify({ epoch: isoDay(0), planets, source: 'jpl-horizons' }, null, 2)}\n`,
+);
+console.log(`wrote public/ephemeris.json for ${isoDay(0)}`);

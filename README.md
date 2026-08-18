@@ -24,15 +24,19 @@ code shows up as a failing test rather than a suspiciously easy game.
 
 ```bash
 npm install
-npm run dev      # http://localhost:5173
-npm test         # unit tests + property-based game fuzzing
+npm run dev        # http://localhost:5173
+npm test           # unit tests + property-based game fuzzing
+npm run ephemeris  # refresh public/ephemeris.json from JPL Horizons
 npm run build
 ```
 
-`/api/ephemeris` is a serverless function (Vercel edge runtime) that proxies JPL
-Horizons and parses its text report. In `npm run dev` that route is not served,
-so the client falls back to a fixed vector table and labels the seed as
-`fallback` in the footer.
+The browser cannot call Horizons directly (it sends no CORS headers) and the
+site is static, so `npm run ephemeris` does the fetch and parse and writes
+`public/ephemeris.json`. The deploy workflow runs it on every push and once a
+day on a schedule. If that file is missing or stale the client falls back to a
+fixed vector table and labels the seed `fallback` in the footer.
+
+Hosted on GitHub Pages via `.github/workflows/deploy.yml`.
 
 ## Layout
 
@@ -40,7 +44,7 @@ so the client falls back to a fixed vector table and labels the seed as
 src/game/     pure game logic - board, firing, AI, RNG, ephemeris parsing
 src/components/  presentation only
 src/test/     unit tests plus a fast-check fuzz harness that plays full games
-api/          Vercel serverless function for the planetary ephemeris
+scripts/      build-time fetch of the planetary ephemeris
 docs/BUGS.md  the bugs found while building this, and how they were fixed
 ```
 

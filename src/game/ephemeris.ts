@@ -43,7 +43,9 @@ const FALLBACK: Ephemeris = {
 
 export async function fetchEphemeris(signal?: AbortSignal): Promise<Ephemeris> {
   try {
-    const response = await fetch('/api/ephemeris', { signal });
+    // Written at build time by scripts/fetch-ephemeris.ts; the site is static.
+    const url = `${import.meta.env.BASE_URL}ephemeris.json`;
+    const response = await fetch(url, { signal, cache: 'no-cache' });
     if (!response.ok) throw new Error(`ephemeris ${response.status}`);
     const data = (await response.json()) as Ephemeris;
     if (!data.planets || data.planets.length === 0) throw new Error('no planets');

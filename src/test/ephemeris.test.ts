@@ -69,6 +69,38 @@ describe('fetchEphemeris', () => {
     expect(result.planets).toHaveLength(3);
   });
 
+  it('falls back when the file is malformed rather than passing it on', async () => {
+    const bad = [
+      { epoch: '2026-08-18', source: 'jpl-horizons', planets: {} },
+      {
+        epoch: '2026-08-18',
+        source: 'jpl-horizons',
+        planets: [
+          { name: 'Venus', x: 1, y: 2, z: 3 },
+          { name: 'Mars', x: 4, y: 5, z: 6 },
+        ],
+      },
+      {
+        epoch: '2026-08-18',
+        source: 'jpl-horizons',
+        planets: [
+          { name: 'Venus' },
+          { name: 'Mars', x: 4, y: 5, z: 6 },
+          { name: 'Jupiter', x: 7, y: 8, z: 9 },
+        ],
+      },
+    ];
+    for (const body of bad) {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve(body) }),
+      );
+      const result = await fetchEphemeris();
+      expect(result.source).toBe('fallback');
+      expect(result.planets).toHaveLength(3);
+    }
+  });
+
   it('rejects an aborted request instead of reporting a fallback seed', async () => {
     vi.stubGlobal(
       'fetch',

@@ -1,244 +1,231 @@
-# Bugs I found in Orbital Battleship, and how I fixed them
+# Debugging Orbital Battleship
 
-Notes I kept while building and debugging this. Every bug below is one I actually
-hit; each has a commit and, where the bug lives in the game logic, a test that
-fails before the fix. Two of them only show up in a production build, and one
-only showed up against the deployed API, which is the part I found most
-interesting.
+## 5 approaches used for bug identification to cast a wide "net"
 
-How I hunted for them:
+1. **Exploratory play** — playing the game as a player with the seed written down
+   so anything odd could be replayed. Catches turn-order, rendering, and
+   information-leak problems. Misses rare edge cases because a human tends to
+   play the middle of the board.
+2. **Unit tests for invariants** — properties the engine must never break, tested
+   with `fast-check` over randomly generated fleets and thousands of complete
+   games (`src/test/fuzz.test.ts`):
+   - ships never overlap or touch, including diagonally
+   - a fleet always covers exactly 17 cells
+   - a cell can only be fired at once; a repeat shot changes nothing
+   - the AI never fires at a cell it has already fired at
+   - every game ends within 100 shots
+   - a ship is sunk exactly when all its cells are hit
 
-- unit tests for the rules I could state precisely (placement, firing, sinking)
-- a `fast-check` fuzz harness (`src/test/fuzz.test.ts`) that generates random
-  placements and plays hundreds of complete AI-vs-board games per run, asserting
-  the engine never reaches an illegal state
-- playing the game in the browser, including on a deliberately slow network
-- hitting the deployed ephemeris endpoint repeatedly rather than once
+   Catches off-by-one and boundary errors. Blind to anything involving the
+   browser or network.
+3. **Independent review by a second Devin session** — a fresh session given the
+   repository, asked to find real defects with a proof for each, with no access
+   to my own list. Catches bugs of omission where my tests and mental model
+   share the same blind spot. Every finding was reproduced before being accepted.
+4. **Degraded-environment and integration testing** — production build, throttled
+   and offline network, aborted requests, page refreshes mid-game, and calling
+   the NASA/JPL endpoint repeatedly rather than once. Catches integration bugs
+   invisible to pure game-logic tests.
+5. **Differential testing against a reference model** — a deliberately slow,
+   obviously-correct model of the AI's probability map compared against the fast
+   implementation (`src/test/oracle.test.ts`). Catches subtly wrong optimisations
+   that look right, pass their examples, and are still wrong.
 
----
+## Findings
 
-## 1. Ships could hang off the bottom and right edges
+### Category 1: Exploratory play — 3 bugs
 
-**Symptom.** A fleet occasionally came back with a ship that had fewer cells on
-the board than its length, so it could never be fully sunk - a game that can't
-be won.
+**a. The AI treated J6 and A7 as neighbours.**
+The board is a flat array of 100 cells and follow-up targeting worked on flat
+indices, so "the cell to the right" was `index + 1`. Index 59 is J6 and index 60
+is A7 — adjacency silently wrapped at every row boundary. The Officer AI scored a
+hit at the right edge and started firing on the far left of the row below.
 
-**How I found it.** The fuzz test, on the first run. `fast-check` shrank it to a
-minimal counterexample and printed:
+*Fix:* all adjacency now goes through row/column helpers that return nothing
+off-grid, and walking a line of hits uses row/column deltas rather than ±1 on the
+index. Regression test in `ai.test.ts`. Commit `8111cd6`.
 
-```
-Counterexample: {"shipId":"carrier","row":10,"col":0,"orientation":"H"}
-```
+**b. The placement preview spilled onto the next row.**
+Hovering the Carrier near the right edge highlighted cells at the end of one row
+and the start of the row below. The move was correctly rejected, but it drew a
+legal-looking highlight for an illegal placement. The preview reused
+`placementCells()`, which assumes the placement is already valid.
 
-Row 10 on a 10x10 board. I would not have clicked there by hand.
+*Fix:* a separate `previewCells()` that walks row/column and drops cells that fall
+off the grid. Tested in `board.test.ts`. Commit `756c5f5`.
 
-**Root cause.** `inBounds()` checked that the *end* of the ship fitted
-(`col + size <= BOARD_SIZE`) but never checked the *start*. For a horizontal
-ship, `row` was not validated at all, so `row: 10` sailed through and the cells
-were computed as indices past the end of the board.
+**c. The enemy fleet panel revealed which ship had been hit.**
+A hit lit up a damage pip next to the ship's name in the enemy fleet list — two
+hits on the Cruiser told you exactly what you were shooting at and how many cells
+remained.
 
-**Fix.** Validate the origin as well as the far end (`src/game/board.ts`):
+*Fix:* a `hideDamage` prop on `FleetStatus`; the enemy panel only reveals a ship
+once it is sunk, or at game over. Your own fleet still shows damage. Commit
+`41a8cb6`. No automated test — asserting on rendered pips would be more brittle
+than useful.
 
-```ts
-if (placement.row < 0 || placement.col < 0) return false;
-if (placement.row >= BOARD_SIZE || placement.col >= BOARD_SIZE) return false;
-```
+### Category 2: Unit tests for invariants — 1 bug
 
-**Test.** `board.test.ts` - "rejects a placement that starts off the board", plus
-the fuzz property that every placed ship has exactly `size` in-bounds cells.
+**a. Ships could hang off the bottom and right edges.**
+A fleet occasionally came back with a ship that had fewer cells on the board than
+its length — an unwinnable game. The fuzz test found it on the first run and
+shrank it to `{"shipId":"carrier","row":10,"col":0,"orientation":"H"}` — row 10 on
+a 10×10 board. `inBounds()` checked that the far end of the ship fit but not the
+start, so for a horizontal ship, `row` wasn't validated at all.
 
-Commit `07fcdff`.
+*Fix:* validate the origin as well as the far end. Regression test in
+`board.test.ts`. Commit `07fcdff`.
 
----
+### Category 3: Independent review — 5 bugs
 
-## 2. The AI thought J6 and A7 were neighbours
+The second Devin session found no high-severity issues — no wrong win or loss
+through the rules engine, and `randomBoard` came back clean over 20,000 seeds. It
+independently found the density-map bug in category 5 from a different starting
+point: two independent channels with no shared assumptions landing on the same
+defect was the most useful signal in the exercise.
 
-**Symptom.** The Officer AI would score a hit at the right edge of the board and
-then start firing on the far left of the next row down, as if the ship wrapped
-around. It looked like the AI was cheating in the dumbest possible way.
-
-**How I found it.** Playing. The battle log made it obvious once I read the cell
-names out loud: `J6` hit, then `A7`, `B7`...
-
-**Root cause.** The board is stored as a flat array of 100 cells and the
-follow-up targeting worked in flat indices: "neighbour to the right" was
-`index + 1`. Index 59 is J6 and index 60 is A7, so at every row boundary the
-neighbourhood silently wrapped.
-
-**Fix.** All adjacency now goes through row/column helpers that return `null`
-off-grid (`src/game/ai.ts`):
-
-```ts
-const cellAt = (row: number, col: number): number | null =>
-  row < 0 || col < 0 || row >= BOARD_SIZE || col >= BOARD_SIZE ? null : toIndex(row, col);
-```
-
-and the "extend along the line of hits" walk uses `dr`/`dc` steps instead of
-`+1`/`-1` on the index.
-
-**Test.** `ai.test.ts` - "does not treat the end of a row as adjacent to the
-start of the next one".
-
-Commit `8111cd6`.
-
----
-
-## 3. The placement preview spilled onto the next row
-
-**Symptom.** Hovering the Carrier near the right edge highlighted a few cells at
-the end of one row and the rest at the beginning of the row below. The placement
-itself was correctly rejected, so this was cosmetic - but it made a legal-looking
-highlight for an illegal move, which is worse than showing nothing.
-
-**How I found it.** Same root cause as #2, so I went looking for other places
-that did arithmetic on flat indices, and this one was in the UI.
-
-**Root cause.** The preview reused `placementCells()`, which assumes the
-placement is already legal.
-
-**Fix.** A separate `previewCells()` that walks row/column and drops any cell
-that falls off the grid, so the highlight is always clipped to the board.
-
-**Test.** `board.test.ts` - preview clipping at the right and bottom edges.
-
-Commit `756c5f5`.
-
----
-
-## 4. The enemy fleet panel leaked which ship you had hit
-
-**Symptom.** Hit a ship, and the "Enemy fleet" list lit up a damage pip next to
-the ship's name. Two hits on the Cruiser and you knew exactly what you were
-shooting at and how many cells were left. That is the information the game is
-supposed to make you work for.
-
-**How I found it.** Playing it as a player rather than as the author. I noticed I
-had stopped guessing.
-
-**Fix.** A `hideDamage` prop on `FleetStatus`; the enemy panel only reveals a
-ship once it is sunk (or at game over, when the whole board is revealed
-anyway). Your own fleet still shows damage, which is the point of it.
-
-Commit `41a8cb6`.
-
-No automated test for this one - it is a presentation rule and I judged an
-assertion on rendered pips to be more brittle than it is worth.
-
----
-
-## 5. The "same seed for everyone today" claim was quietly false in production
-
-**Symptom.** The whole planetary-seed idea rests on everyone who plays on a given
-day getting the same board. Locally it always did. Against the deployed endpoint,
-sometimes it didn't.
-
-**How I found it.** I hit `/api/ephemeris` on the deployment three times in a row
-instead of once, and one response came back with two planets instead of three.
-Two planets hash to a different seed, so that player got a different board.
-
-**Root cause.** The route fetched Venus, Mars and Jupiter with `Promise.all()`.
-NASA/JPL Horizons throttles requests that arrive together and answered one of
-them with an error, which the code treated as "no vector for this body" and
-skipped, happily returning a partial ephemeris.
-
-**Fix.** Fetch the bodies one at a time, retry each once after a short delay, and
-treat a missing body as a hard failure rather than shipping partial data - a
-partial ephemeris is worse than the offline fallback, because it looks
-authoritative. Also added an hour of cache so the upstream sees far fewer calls.
-
-**Test.** `ephemeris.test.ts` asserts that dropping a planet changes the seed,
-which is the property that made the partial response dangerous, plus parser tests
-against a real Horizons report (its text format puts negative numbers hard
-against the `=`, e.g. `X =-4.83E+08`, which my first regex missed).
-
-Commit `b51bb41`.
-
----
-
-## 6. You could fire into an empty ocean, and your shots were then erased
-
-**Symptom.** On a slow connection, the game let me click **Random fleet** and
-start firing immediately. Every shot was a miss, no matter where I fired. When
-the planet data finally arrived, all the miss markers on the enemy grid
-disappeared and the game silently restarted itself.
-
-**How I found it.** Suspicion, then a repro. The enemy fleet is laid out from the
-planetary seed, so it cannot exist before that fetch resolves - but nothing in
-the UI said so. I scripted the page with Playwright, delayed the ephemeris
-response by 20 seconds, fired 14 shots and counted:
+**a. The Admiral could walk away from a wounded ship.**
+A placement explaining an unresolved hit scored 30 per placement; open water
+scored 1 per placement, and with the whole fleet afloat a central cell accumulates
+up to 2 × (5+4+3+3+2) = 34. The bonus was smaller than plain water:
 
 ```
-player shots: 14 hits: 0
-enemy grid marks before seed lands: 14
-enemy grid marks after seed lands: 0
+unresolved hit: A1, all five ships still afloat
+density[B1] (only cell that finishes the wounded ship) = 30
+density[E5] (empty water, unrelated to the hit)        = 34
+cells the Admiral picks over 20 rolls: E6, E5, F6, F5
 ```
 
-14 shots, zero hits (the real fleet is 17 of 100 cells, so that is not luck), and
-then all 14 markers gone.
+*Fix:* the bonus is now `1000 ** covered`, well clear of the maximum base count.
+Regression test in `ai.test.ts`. The reviewer measured 0 violations in 400 games
+and had to construct the board by hand — which is why neither my tests nor my play
+found it.
 
-**Root cause.** Two things. The enemy board started as `emptyBoard()` and was
-only filled in inside the `fetchEphemeris().then(...)`, and `fleetDestroyed()`
-returns `false` for a board with no ships (correctly - otherwise an empty board
-would count as an instant win), so firing at nothing just produced misses
-forever. Then the `then` callback called `setAiBoard(randomBoard(...))`
-unconditionally and threw away the in-progress board along with every shot on it.
+**b. The Officer kept firing around a wreck.**
+`chooseShot` preferred queued follow-up cells in `state.targets` over follow-ups
+recomputed from current knowledge, and the queue was only filtered for "already
+fired at." Cells queued while a ship was wounded survived the ship sinking, and
+the AI spent them next to the wreck — guaranteed misses under the no-touching
+rule — while another ship sat wounded:
 
-**Fix.** Treat "seed has not landed" as an explicit state:
+```
+D9 hit — Cruiser wounded. Leftover queue: D5, F5
+turn 3: fires D5 -> miss | correct follow-ups: D8, D10, C9, E9
+turn 4: fires F5 -> miss | correct follow-ups: D8, D10, C9, E9
+```
 
-- `fleetReady(board)` in `src/game/board.ts` - a board is playable only when all
-  five ships are on it
-- placement, **Random fleet** and firing are all gated on it, and the status line
-  says *"Reading planetary positions before the enemy fleet is laid out..."*
-- the ephemeris callback now uses a functional update and refuses to overwrite a
-  board that is already in play
+Over 400 games: 251 shots from the stale queue while a wounded ship was pending.
 
-**Test.** `board.test.ts` - `fleetReady` is false for an empty and a partial
-board, true for a full one. Re-ran the Playwright repro afterwards: the button is
-disabled, clicks on the enemy grid do nothing, and the battle log stays empty
-until the seed lands.
+*Fix:* the queue now only carries order, intersected each turn with follow-ups
+recomputed from current knowledge. Officer's mean shots to clear a board went from
+57.8 to 53.9. Regression test in `ai.test.ts`.
 
----
+**c. A malformed `ephemeris.json` stalled the game permanently.**
+The client validated only `data.planets && data.planets.length !== 0`. A file
+whose `planets` field isn't an array passed that check, then `seedFromEphemeris`
+threw inside the mount effect's `.then`, where a catch-all written for aborted
+fetches swallowed it. The UI sat on "Reading planetary positions..." permanently —
+reload included.
 
-## 7. An aborted fetch was reported as "Horizons is down"
+*Fix:* `planets` must now be an array containing all three expected bodies with
+finite coordinates; anything else takes the offline fallback. Tested in
+`ephemeris.test.ts`.
 
-**Symptom.** In development the footer almost always said `fallback` even though
-the planet data was there and fine. It also hid bug #6 from me for a while,
-because in development the enemy fleet appeared instantly.
+**d. Two clicks in one task fired twice in one turn.**
+`playerFire` read `turn` from the render closure, so two clicks in the same React
+batch both saw `turn === 'player'`, both fired, and the second board update
+overwrote the first — two shots in the log, one mark on the grid. Low severity;
+only reproducible with synthetic input.
 
-**How I found it.** Chasing #6. My first repro of #6 failed to reproduce in
-`npm run dev` - I got hits on a board that should not have existed yet. That
-mismatch was the tell.
+**e. The difficulty dropdown could delay the AI's shot indefinitely.**
+The AI's shot was scheduled by an effect with `aiState` in its dependency list.
+Changing difficulty replaces `aiState`; toggling the dropdown faster than the
+550 ms delay cleared and rescheduled the timer each time — the AI never fired and
+the player couldn't act either.
 
-**Root cause.** React StrictMode mounts effects twice in development. The first
-mount's cleanup aborts its `fetch`, and `fetchEphemeris()` caught *everything*
-and returned the offline fallback. So the aborted request resolved instantly with
-fallback coordinates, which set the enemy board early (masking #6) and mislabelled
-the seed source. A cancelled request is not a service failure.
+*Fix for both (d) and (e):* `turn` mirrored in a ref and checked there; AI memory
+moved to a ref so reconfiguring it no longer cancels the pending shot.
 
-**Fix.** Re-throw `AbortError` instead of swallowing it, and ignore it at the
-call site since an abort only happens when the component is going away.
+### Category 4: Degraded-environment and integration testing — 3 bugs
 
-**Test.** `ephemeris.test.ts` - "rejects an aborted request instead of reporting a
-fallback seed", alongside a test that a 404 still does fall back.
+**a. "Everyone gets the same board today" was quietly false in production.**
+Calling `/api/ephemeris` three times in a row, one response came back with two
+planets instead of three. The route fetched Venus, Mars, and Jupiter with
+`Promise.all()`; Horizons throttled requests arriving together and answered one
+with an error, which the code read as "no vector for this body" and skipped —
+returning partial data that still looked authoritative.
 
----
+*Fix:* fetch bodies sequentially, retry each once, treat a missing body as a hard
+failure, cache for an hour. Commit `b51bb41`.
 
-## Not code bugs, but they cost me time
+**b. You could fire into an empty ocean and the shots would be erased.**
+On a slow connection the game allowed placement and firing before planet data
+arrived. Every shot missed; when the seed landed all markers disappeared and the
+game silently restarted. Scripted with Playwright at a 20-second delay: 14 shots,
+0 hits, 14 markers before the seed — 0 after. The enemy board started as
+`emptyBoard()` and was only filled inside `fetchEphemeris().then(...)`; the
+callback then overwrote the in-progress board.
 
-- **Vercel blocked new deployments** part-way through (Hobby plan) and asked for
-  an upgrade, so the serverless ephemeris route had to go. The site now builds on
-  GitHub Actions and the planet coordinates are fetched at build time into
-  `public/ephemeris.json`, refreshed daily on a schedule. Same behaviour for the
-  player, one less runtime dependency - the browser can't call Horizons directly
-  anyway, since it sends no CORS headers.
-- **Horizons' text report format.** The vectors come back as a text report inside
-  JSON, and the numbers are not laid out the way the docs' examples suggest. I
-  pinned a real report into `ephemeris.test.ts` so the parser is tested against
-  what the service actually sends rather than what I assumed.
+*Fix:* "seed not ready" is now an explicit state — `fleetReady(board)` gates
+placement, random fleet, and firing; the ephemeris callback uses a functional
+update that won't overwrite a board already in play. Tested in `board.test.ts`.
 
-## What I would do next
+**c. An aborted fetch was reported as "Horizons is down."**
+React StrictMode mounts effects twice in development; the first mount's cleanup
+aborted its `fetch`, and `fetchEphemeris()` caught everything and returned the
+offline fallback — masking bug (b) because the enemy fleet appeared instantly.
 
-The fuzz harness only plays AI-vs-board games; the React layer is tested by hand.
-Bugs #6 and #7 both lived in that layer, which tells me where the next tests
-should go - a couple of component-level tests around the "seed not ready yet"
-state and the turn handover would have caught both.
+*Fix:* re-throw `AbortError` and ignore it at the call site. Tested in
+`ephemeris.test.ts`.
+
+### Category 5: Differential testing — 1 bug
+
+**a. The Admiral wasted shots on cells that were provably empty.**
+Comparing the reference model against `densityMap()` with the Destroyer sunk on
+A1–B1 and two missed shots:
+
+```
+samples: 20,000
+cells the oracle says are impossible but densityMap still targets: 4
+C1: oracle 0.0000  densityMap 8
+A2: oracle 0.0000  densityMap 8
+B2: oracle 0.0000  densityMap 12
+C2: oracle 0.0000  densityMap 20
+```
+
+Ships can't touch, so cells adjacent to a sunk ship are known-empty even if
+nothing has been fired there. `densityMap()` excluded misses and sunk cells but
+not the surrounding cells, so it kept enumerating placements through them. The
+independent review found the same defect from a different angle — 11% of the
+Admiral's self-play shots landed on cells touching a sunk ship.
+
+*Fix:* cells touching a sunk ship are now blocked when enumerating placements.
+Admiral's mean shots to clear a board went from 44.9 to 38.4 over 2,000 headless
+games (`npm run benchmark`). Regression tests in `oracle.test.ts` and
+`ai.test.ts`.
+
+## Issues not fixed
+
+- **Enemy fleet readable in the browser.** The AI's layout lives in client state;
+  devtools will show it. Only a server-authoritative version would prevent this.
+- **Boards replayable from the seed.** The layout for a given day can be learned
+  once and replayed. A per-game seed derived from the shared daily seed would fix
+  this without losing the shared-board property.
+- **No component-level tests.** Four bugs above lived in the React layer, tested
+  only by hand and unchecked Playwright scripts. Tests around the "seed not ready"
+  state and turn handover are the highest-value ones missing.
+- **The Officer still fires at cells the rules make impossible.** It hunts on a
+  parity grid with no notion of the no-touching rule. Left as-is — arguably
+  appropriate for a mid-difficulty opponent.
+- **`parseVector` only accepts exponent-notation numbers.** A Horizons report
+  printing plain decimals would parse as a missing body. Unconfirmed whether
+  Horizons ever formats that way, so left alone.
+- **The reference model is sampled, not exhaustive.** 20,000 samples give strong
+  but not absolute evidence. Exhaustive enumeration would be sound; too slow for
+  the test suite as written.
+- **The Admiral's density map is still an approximation.** It counts placements
+  per ship independently rather than complete fleets. Now consistent with the
+  reference model on what's impossible — which is what changed its behaviour.
+- **Vercel blocked deployments mid-project** (Hobby plan). The site builds on
+  GitHub Actions; planet coordinates are fetched at build time into
+  `public/ephemeris.json`, refreshed daily.

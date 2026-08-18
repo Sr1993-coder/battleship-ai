@@ -58,6 +58,23 @@ function orthogonal(index: number): number[] {
   return out;
 }
 
+/** The eight cells around one, clipped to the board. */
+function touching(index: number): number[] {
+  const row = toRow(index);
+  const col = toCol(index);
+  const out: number[] = [];
+  for (let dr = -1; dr <= 1; dr++) {
+    for (let dc = -1; dc <= 1; dc++) {
+      if (dr === 0 && dc === 0) continue;
+      const r = row + dr;
+      const c = col + dc;
+      if (r < 0 || c < 0 || r >= BOARD_SIZE || c >= BOARD_SIZE) continue;
+      out.push(toIndex(r, c));
+    }
+  }
+  return out;
+}
+
 function remainingSizes(knowledge: AiKnowledge): number[] {
   const sunk = new Set(knowledge.sunkShipIds);
   return FLEET.filter((s) => !sunk.has(s.id)).map((s) => s.size);
@@ -122,7 +139,11 @@ export function densityMap(knowledge: AiKnowledge): number[] {
   const density = new Array<number>(CELL_COUNT).fill(0);
   const sunk = new Set(knowledge.sunkCells);
   const hits = new Set(activeHits(knowledge));
-  const blocked = (i: number) => knowledge.shots[i] === 'miss' || sunk.has(i);
+  // Ships may not touch, so nothing can sit next to a ship that has sunk -
+  // those cells are known-empty even though they have never been fired at.
+  const beside = new Set<number>();
+  for (const cell of knowledge.sunkCells) for (const n of touching(cell)) beside.add(n);
+  const blocked = (i: number) => knowledge.shots[i] === 'miss' || sunk.has(i) || beside.has(i);
 
   for (const size of remainingSizes(knowledge)) {
     for (let row = 0; row < BOARD_SIZE; row++) {
@@ -141,7 +162,9 @@ export function densityMap(knowledge: AiKnowledge): number[] {
           if (cells.length !== size) continue;
           if (cells.some(blocked)) continue;
           const covered = cells.filter((cell) => hits.has(cell)).length;
-          const weight = covered > 0 ? Math.pow(30, covered) : 1;
+          // The base count over an untouched board reaches 34, so the bonus for
+          // explaining a hit has to be well clear of that to actually dominate.
+          const weight = covered > 0 ? Math.pow(1000, covered) : 1;
           for (const cell of cells) {
             if (knowledge.shots[cell] === undefined) density[cell] += weight;
           }
@@ -166,8 +189,13 @@ export function chooseShot(knowledge: AiKnowledge, state: AiState, rng: Rng): Ai
   }
 
   if (state.difficulty === 'hunter') {
-    const queue = state.targets.filter((i) => knowledge.shots[i] === undefined);
-    const targets = queue.length > 0 ? queue : followUpTargets(knowledge);
+    // The queue only carries the order to work through; which cells are still
+    // worth firing at is recomputed every turn, so cells left over from a ship
+    // that has since sunk drop out instead of wasting shots on the wreck.
+    const followUps = followUpTargets(knowledge);
+    const live = new Set(followUps);
+    const queue = state.targets.filter((i) => live.has(i));
+    const targets = queue.length > 0 ? queue : followUps;
     if (targets.length > 0) {
       const index = targets[0];
       return { index, state: { ...state, targets: targets.slice(1) } };

@@ -33,15 +33,29 @@ export default function App() {
   const [phase, setPhase] = useState<Phase>('placing');
   const [playerBoard, setPlayerBoard] = useState<Board>(emptyBoard);
   const [aiBoard, setAiBoard] = useState<Board>(emptyBoard);
-  const [aiState, setAiState] = useState<AiState>(() => newAiState('hunter'));
   const [orientation, setOrientation] = useState<Orientation>('H');
   const [hover, setHover] = useState<number | null>(null);
   const [log, setLog] = useState<string[]>([]);
-  const [turn, setTurn] = useState<'player' | 'ai'>('player');
+  const [turn, setTurnState] = useState<'player' | 'ai'>('player');
   const [showHeat, setShowHeat] = useState(false);
   const [lastPlayerShot, setLastPlayerShot] = useState<number | null>(null);
   const [lastAiShot, setLastAiShot] = useState<number | null>(null);
   const rngRef = useRef(mulberry32(Date.now()));
+  // Whose turn it is, kept outside React state as well: two clicks handled in
+  // the same task would both read the same stale `turn` and both fire.
+  const turnRef = useRef<'player' | 'ai'>('player');
+  // The AI's memory. In a ref because the effect below must not be torn down
+  // and rescheduled every time the AI updates it, or changes difficulty.
+  const aiStateRef = useRef<AiState>(newAiState('hunter'));
+
+  const setTurn = useCallback((next: 'player' | 'ai') => {
+    turnRef.current = next;
+    setTurnState(next);
+  }, []);
+
+  const setAiState = useCallback((next: AiState) => {
+    aiStateRef.current = next;
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -141,9 +155,10 @@ export default function App() {
   }
 
   function playerFire(index: number) {
-    if (phase !== 'battle' || turn !== 'player' || !ready) return;
+    if (phase !== 'battle' || turnRef.current !== 'player' || !ready) return;
     const outcome = fire(aiBoard, index);
     if (outcome.result === 'repeat') return;
+    turnRef.current = 'ai';
     setAiBoard(outcome.board);
     setLastPlayerShot(index);
     if (outcome.result === 'sunk') {
@@ -162,7 +177,7 @@ export default function App() {
   useEffect(() => {
     if (phase !== 'battle' || turn !== 'ai') return;
     const timer = setTimeout(() => {
-      const move = chooseShot(knowledgeOf(playerBoard), aiState, rngRef.current);
+      const move = chooseShot(knowledgeOf(playerBoard), aiStateRef.current, rngRef.current);
       const outcome = fire(playerBoard, move.index);
       setAiState(move.state);
       setPlayerBoard(outcome.board);
@@ -180,7 +195,7 @@ export default function App() {
       setTurn('player');
     }, 550);
     return () => clearTimeout(timer);
-  }, [phase, turn, playerBoard, aiState, addLog]);
+  }, [phase, turn, playerBoard, addLog, setTurn, setAiState]);
 
   // The map the Admiral works from: how many ways the ships still afloat could
   // cover each square of the player's ocean. Drawn on the player's own board,
